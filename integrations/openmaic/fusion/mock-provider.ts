@@ -1,94 +1,52 @@
 import { FUSION_CONTRACT_VERSION, type StudentProfile } from './contracts';
-import type { FusionProfileProvider, StudentProfileRequest } from './provider';
+import { getDemoLearnerProfileFixture, DEMO_PROFILE_SNAPSHOT_AT } from './demo-profile-fixtures';
+import { FusionProviderError, type FusionProfileProvider, type StudentProfileRequest } from './provider';
 
-function isoNow(): string {
-  return new Date().toISOString();
-}
-
-function createFoundationProfile(learnerId: string): StudentProfile {
-  return {
-    contractVersion: FUSION_CONTRACT_VERSION,
-    learnerId,
-    displayName: 'Demo 学生 A',
-    source: 'mock',
-    knowledgeState: [
-      {
-        knowledgePointId: 'linear-function-graph',
-        name: '一次函数图像与基本变化趋势',
-        mastery: 0.78,
-      },
-      {
-        knowledgePointId: 'linear-function-slope-intercept',
-        name: '斜率与截距的现实含义',
-        mastery: 0.38,
-      },
-      {
-        knowledgePointId: 'linear-function-modeling',
-        name: '由实际情境建立函数关系',
-        mastery: 0.42,
-      },
-    ],
-    strengths: ['能够从图像判断函数的增减趋势'],
-    weakPoints: ['斜率与截距的现实含义', '由实际情境建立函数关系'],
-    learningPreferences: {
-      preferredExamples: ['生活化的计费或路程问题'],
-      preferredRepresentations: ['concrete', 'visual', 'step_by_step'],
-      pace: 'slow',
-    },
-    recentMisconceptions: [
-      {
-        knowledgePointId: 'linear-function-slope-intercept',
-        knowledgePoint: '斜率与截距的现实含义',
-        errorType: 'deviation',
-        description: '容易把斜率和纵轴截距都理解成“初始数量”。',
-      },
-    ],
-    updatedAt: isoNow(),
-  };
-}
-
-function createAdvancedProfile(learnerId: string): StudentProfile {
-  return {
-    contractVersion: FUSION_CONTRACT_VERSION,
-    learnerId,
-    displayName: 'Demo 学生 B',
-    source: 'mock',
-    knowledgeState: [
-      {
-        knowledgePointId: 'linear-function-graph',
-        name: '一次函数图像与基本变化趋势',
-        mastery: 0.93,
-      },
-      {
-        knowledgePointId: 'linear-function-slope-intercept',
-        name: '斜率与截距的现实含义',
-        mastery: 0.88,
-      },
-      {
-        knowledgePointId: 'linear-function-modeling',
-        name: '由实际情境建立函数关系',
-        mastery: 0.81,
-      },
-    ],
-    strengths: ['能在图像、解析式和实际情境之间转换', '能独立解释斜率与截距'],
-    weakPoints: [],
-    learningPreferences: {
-      preferredExamples: ['带有约束条件的真实问题'],
-      preferredRepresentations: ['formula', 'visual'],
-      pace: 'fast',
-    },
-    recentMisconceptions: [],
-    updatedAt: isoNow(),
-  };
-}
-
-/** Offline provider for repeatable demos and local development. */
+/**
+ * 离线、确定性的演示画像 Provider。
+ *
+ * 它只读取版本控制的合成 fixture；不读取 DeepTutor 运行时的 L3 Markdown、
+ * L2 条目、数据库或真实用户数据。fixture 的编写规则见 `l3-profile-guidance.ts`。
+ */
 export class MockFusionProfileProvider implements FusionProfileProvider {
   readonly id = 'mock';
 
-  async getStudentProfile({ learnerId }: StudentProfileRequest): Promise<StudentProfile> {
-    return learnerId === 'demo-student-b'
-      ? createAdvancedProfile(learnerId)
-      : createFoundationProfile(learnerId);
+  async getStudentProfile({ learnerId, topic }: StudentProfileRequest): Promise<StudentProfile> {
+    const fixture = getDemoLearnerProfileFixture(learnerId);
+    if (!fixture) {
+      throw new FusionProviderError('未找到该演示学生画像。', 'not_found');
+    }
+    if (!fixture.supportedTopics.includes(topic)) {
+      throw new FusionProviderError(
+        `演示学生画像目前只支持：${fixture.supportedTopics.join('、')}。`,
+        'unsupported_topic',
+      );
+    }
+
+    return {
+      contractVersion: FUSION_CONTRACT_VERSION,
+      learnerId: fixture.learnerId,
+      displayName: fixture.displayName,
+      source: 'mock',
+      knowledgeState: fixture.knowledgeState.map((point) => ({
+        knowledgePointId: point.id,
+        name: point.name,
+        mastery: point.mastery,
+      })),
+      strengths: [...fixture.strengths],
+      weakPoints: [...fixture.weakPoints],
+      learningPreferences: {
+        preferredExamples: [...fixture.learningPreferences.preferredExamples],
+        preferredRepresentations: [...fixture.learningPreferences.preferredRepresentations],
+        pace: fixture.learningPreferences.pace,
+      },
+      recentMisconceptions: fixture.recentMisconceptions.map((misconception) => ({
+        knowledgePointId: misconception.knowledgePointId,
+        knowledgePoint: misconception.knowledgePoint,
+        errorType: misconception.errorType,
+        description: misconception.description,
+      })),
+      updatedAt: DEMO_PROFILE_SNAPSHOT_AT,
+    };
   }
 }

@@ -17,7 +17,7 @@ export interface FusionProfileProvider {
 export class FusionProviderError extends Error {
   constructor(
     message: string,
-    readonly code: 'not_configured' | 'not_found' | 'upstream_error' | 'invalid_response',
+    readonly code: 'not_configured' | 'not_found' | 'unsupported_topic' | 'upstream_error' | 'invalid_response',
     readonly cause?: unknown,
   ) {
     super(message);

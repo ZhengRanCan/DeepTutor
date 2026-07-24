@@ -38,7 +38,6 @@ function parseProfile(value: unknown): StudentProfile {
             knowledgePointId: item.knowledgePointId,
             name: item.name,
             mastery,
-            ...(Array.isArray(item.evidence) ? { evidence: asStringArray(item.evidence) } : {}),
           },
         ];
       })

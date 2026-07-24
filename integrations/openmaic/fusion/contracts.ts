@@ -20,7 +20,6 @@ export interface KnowledgeMastery {
   name: string;
   /** Normalized mastery estimate in the inclusive range 0..1. */
   mastery: number;
-  evidence?: string[];
 }
 
 export interface LearningPreference {
