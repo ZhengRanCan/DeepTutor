@@ -332,6 +332,7 @@ from deeptutor.api.routers import (
     system,
     unified_ws,
     voice,
+    fusion_diagnosis,
 )
 from deeptutor.api.routers import (
     tools as tools_router,
@@ -417,6 +418,7 @@ app.include_router(
 app.include_router(tools_router.router, prefix="/api/v1/tools", tags=["tools"], dependencies=_auth)
 app.include_router(system.router, prefix="/api/v1/system", tags=["system"], dependencies=_auth)
 app.include_router(voice.router, prefix="/api/v1/voice", tags=["voice"], dependencies=_auth)
+app.include_router(fusion_diagnosis.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(
     plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"], dependencies=_auth
 )
