@@ -3,6 +3,7 @@ import os, secrets, time
 from dataclasses import dataclass
 
 SCOPES = ('profile:read', 'diagnosis:request', 'classroom-event:write', 'profile-update:submit')
+F24_SYNTHETIC_LEARNERS = ('f24-synthetic-a', 'f24-synthetic-b')
 _codes: dict[str, tuple[str, float]] = {}
 _revoked: set[str] = set()
 _delegations: dict[str, dict[str, object]] = {}
