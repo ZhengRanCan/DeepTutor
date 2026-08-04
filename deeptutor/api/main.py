@@ -336,6 +336,7 @@ from deeptutor.api.routers import (
     fusion_profile_updates,
     fusion_launch,
     fusion_profile,
+    fusion_preclass_context,
 )
 from deeptutor.api.routers import (
     tools as tools_router,
@@ -425,6 +426,7 @@ app.include_router(fusion_diagnosis.router, prefix="/api/v1/fusion", tags=["fusi
 app.include_router(fusion_profile_updates.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(fusion_launch.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(fusion_profile.router, prefix="/api/v1/fusion", tags=["fusion"])
+app.include_router(fusion_preclass_context.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(
     plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"], dependencies=_auth
 )
