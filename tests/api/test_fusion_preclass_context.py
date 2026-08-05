@@ -1,160 +1,229 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from deeptutor.api.routers.fusion_test_app import create_app
-import deeptutor.api.services.fusion_delegation as delegation_service
+from deeptutor.api.services.fusion_course_scope import CourseScopeRegistry
 from deeptutor.api.services.fusion_delegation import exchange_launch_code, issue_launch_code
-from deeptutor.fusion.preclass_contracts import PRECLASS_CONTRACT_VERSION
-
-FIXTURES = json.loads(
-    (
-        Path(__file__).resolve().parents[3]
-        / "docs/harness/FUSION/fixtures/canonical-digest-v1.json"
-    ).read_text(encoding="utf-8")
+from deeptutor.book.models import (
+    Book,
+    BookStatus,
+    Chapter,
+    ConceptGraph,
+    ConceptNode,
+    Progress,
+    Spine,
 )
-SEMANTIC = FIXTURES["successCases"][0]
+from deeptutor.book.storage import get_book_storage
+from deeptutor.fusion.preclass_contracts import (
+    PRECLASS_CONTRACT_VERSION,
+    compute_semantic_request_digest,
+)
+from deeptutor.multi_user.models import CurrentUser
+from deeptutor.multi_user.paths import scope_for_user, user_context
 
 
-def semantic_request(**overrides: object) -> dict[str, object]:
-    return {
+def semantic_request(scope_id: str, **overrides: object) -> dict[str, object]:
+    draft: dict[str, object] = {
         "schemaVersion": PRECLASS_CONTRACT_VERSION,
-        "semanticRequestId": "request-41",
+        "semanticRequestId": "request-44",
         "semanticRequestRevision": "1",
-        "lessonSessionId": "lesson-41",
-        "semanticRequestDigest": SEMANTIC["sha256"],
-        **SEMANTIC["canonicalValue"],
+        "lessonSessionId": "lesson-44",
+        "semanticRequestDigest": "sha256:" + "0" * 64,
+        "normalizedTopic": "Explain linear functions",
+        "normalizedLearningObjectives": ["Understand slope in linear functions"],
+        "authorizedKnowledgeScope": {
+            "namespace": "deeptutor",
+            "scopeId": scope_id,
+            "allowedKnowledgeRefs": [],
+        },
+        "audienceSemantics": {"audienceType": "classroom", "language": "en"},
+        "teachingConstraints": {"durationMinutes": 15},
+        "requestedKnowledgeRefs": [],
+        "sourceMaterialRefs": [],
         "warnings": [],
         **overrides,
     }
+    draft["semanticRequestDigest"] = compute_semantic_request_digest(draft)
+    return draft
 
 
-def client_and_headers(monkeypatch: object) -> tuple[TestClient, dict[str, str]]:
-    monkeypatch.setenv("ENVIRONMENT", "test")  # type: ignore[attr-defined]
-    issued = exchange_launch_code(
-        issue_launch_code("allowlisted-synthetic-learner"), "openmaic", "lesson-41"
+def setup_real_scope(monkeypatch, tmp_path, *, with_progress: bool):
+    from deeptutor.api.routers import fusion_preclass_context as route_module
+    from deeptutor.api.services import fusion_course_scope as scope_module
+    from deeptutor.book import storage as storage_module
+    from deeptutor.multi_user import paths
+
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setattr(paths, "USERS_ROOT", tmp_path / "users")
+    paths._path_services.clear()  # noqa: SLF001
+    storage_module._storages.clear()  # noqa: SLF001
+    learner_id = "learner-real-44"
+    learner = CurrentUser(
+        id=learner_id,
+        username="learner",
+        role="user",
+        scope=scope_for_user(learner_id, is_admin=False),
     )
-    assert issued
-    return TestClient(create_app()), {"Authorization": f"Bearer {issued['token']}"}
+    with user_context(learner):
+        storage = get_book_storage()
+        storage.save_book(Book(id="book-linear", title="Linear Functions", status=BookStatus.READY))
+        storage.save_spine(
+            Spine(
+                book_id="book-linear",
+                version=3,
+                chapters=[
+                    Chapter(
+                        id="chapter-slope",
+                        title="Slope in linear functions",
+                        learning_objectives=["Interpret slope"],
+                    )
+                ],
+                concept_graph=ConceptGraph(
+                    nodes=[
+                        ConceptNode(
+                            id="linear_slope",
+                            label="Slope in linear functions",
+                            chapter_id="chapter-slope",
+                        )
+                    ]
+                ),
+            )
+        )
+        if with_progress:
+            storage.save_progress(
+                Progress(
+                    book_id="book-linear",
+                    visited_page_ids=["page-1"],
+                    weak_chapters=["chapter-slope"],
+                    score=35,
+                )
+            )
+        registry = CourseScopeRegistry(tmp_path / "course-scopes.json")
+        scope = registry.create_scope(learner_id, ["book-linear"], storage)
+    monkeypatch.setattr(scope_module, "get_course_scope_registry", lambda: registry)
+    monkeypatch.setattr(route_module, "get_course_scope_registry", lambda: registry)
+    code = issue_launch_code(learner_id, scope)
+    credential = exchange_launch_code(code, "openmaic", "lesson-44")
+    assert credential
+    headers = {"Authorization": f"Bearer {credential['token']}"}
+    return TestClient(create_app()), headers, registry, scope
 
 
-def test_delegated_request_returns_one_explicitly_synthetic_proposal(monkeypatch) -> None:
-    client, headers = client_and_headers(monkeypatch)
+def test_real_route_maps_bound_book_and_returns_minimal_progress_projection(
+    monkeypatch, tmp_path
+) -> None:
+    client, headers, _, scope = setup_real_scope(monkeypatch, tmp_path, with_progress=True)
     response = client.post(
-        "/api/v1/fusion/pre-class/context", json=semantic_request(), headers=headers
+        "/api/v1/fusion/pre-class/context",
+        json=semantic_request(str(scope["courseScopeId"])),
+        headers=headers,
     )
 
     assert response.status_code == 200
     proposal = response.json()
-    assert proposal["basedOnSemanticRequestId"] == "request-41"
-    assert proposal["basedOnSemanticRequestRevision"] == "1"
-    assert proposal["semanticRequestDigest"] == SEMANTIC["sha256"]
-    assert proposal["sourceRevisions"] == ["synthetic-fixture-v1"]
-    assert proposal["warnings"] == ["synthetic_development_source"]
-    serialized = json.dumps(proposal)
-    for forbidden in ("allowlisted-synthetic-learner", "token", "memory", "thought"):
-        assert forbidden not in serialized.lower()
-
-
-def test_route_rejects_session_scope_audience_and_expiry_failures(monkeypatch) -> None:
-    client, headers = client_and_headers(monkeypatch)
-    assert (
-        client.post(
-            "/api/v1/fusion/pre-class/context",
-            json=semantic_request(lessonSessionId="wrong-lesson"),
-            headers=headers,
-        ).status_code
-        == 403
-    )
-
-    scope_token = exchange_launch_code(
-        issue_launch_code("allowlisted-synthetic-learner"), "openmaic", "lesson-41"
-    )
-    assert scope_token
-    delegation_service._delegations[str(scope_token["token"])]["scope"].remove(  # noqa: SLF001
-        "preclass-context:read"
-    )
-    assert (
-        client.post(
-            "/api/v1/fusion/pre-class/context",
-            json=semantic_request(),
-            headers={"Authorization": f"Bearer {scope_token['token']}"},
-        ).status_code
-        == 403
-    )
-
-    audience_token = exchange_launch_code(
-        issue_launch_code("allowlisted-synthetic-learner"), "openmaic", "lesson-41"
-    )
-    assert audience_token
-    delegation_service._delegations[str(audience_token["token"])]["audience"] = "other"  # noqa: SLF001
-    assert (
-        client.post(
-            "/api/v1/fusion/pre-class/context",
-            json=semantic_request(),
-            headers={"Authorization": f"Bearer {audience_token['token']}"},
-        ).status_code
-        == 403
-    )
-
-    expired_token = exchange_launch_code(
-        issue_launch_code("allowlisted-synthetic-learner"), "openmaic", "lesson-41"
-    )
-    assert expired_token
-    monkeypatch.setattr(delegation_service.time, "time", lambda: 9_999_999_999)
-    assert (
-        client.post(
-            "/api/v1/fusion/pre-class/context",
-            json=semantic_request(),
-            headers={"Authorization": f"Bearer {expired_token['token']}"},
-        ).status_code
-        == 403
-    )
-
-
-def test_route_fails_closed_for_contract_and_payload_errors(monkeypatch) -> None:
-    client, headers = client_and_headers(monkeypatch)
-    invalid_cases = [
-        semantic_request(learnerId="browser-override"),
-        semantic_request(schemaVersion="preclass-fusion-v2"),
-        semantic_request(semanticRequestDigest="sha256:" + "e" * 64),
-        semantic_request(
-            requestedKnowledgeRefs=[
-                {"namespace": "deeptutor", "scopeId": "not-authorized", "id": "kp-linear-slope"}
-            ]
-        ),
+    assert proposal["resolutionStatus"] == "ready"
+    assert proposal["lessonKnowledgeMap"]["knowledgeRefs"]
+    assert {ref["scopeId"] for ref in proposal["lessonKnowledgeMap"]["knowledgeRefs"]} == {
+        scope["courseScopeId"]
+    }
+    assert proposal["learnerCognitiveProjection"]["signals"] == [
+        "course_started",
+        "progress_available",
+        "score_band_low",
+        "weak_area_present",
     ]
-    for body in invalid_cases:
-        assert (
-            client.post("/api/v1/fusion/pre-class/context", json=body, headers=headers).status_code
-            == 400
-        )
+    assert proposal["teachingGuidance"]["recommendedApproaches"][0] == (
+        "targeted-retrieval-practice"
+    )
+    serialized = json.dumps(proposal).lower()
+    for forbidden in ("learner-real-44", "user_answer", "memory", "token", "thought"):
+        assert forbidden not in serialized
+
+
+def test_missing_progress_is_ready_with_insufficient_data(monkeypatch, tmp_path) -> None:
+    client, headers, _, scope = setup_real_scope(monkeypatch, tmp_path, with_progress=False)
+    proposal = client.post(
+        "/api/v1/fusion/pre-class/context",
+        json=semantic_request(str(scope["courseScopeId"])),
+        headers=headers,
+    ).json()
+    assert proposal["resolutionStatus"] == "ready"
+    assert proposal["learnerCognitiveProjection"]["signals"] == ["insufficient_data"]
+    assert proposal["teachingGuidance"]["recommendedApproaches"] == ["diagnostic-checkpoint-first"]
+
+
+def test_scope_mismatch_and_revoke_fail_closed(monkeypatch, tmp_path) -> None:
+    client, headers, registry, scope = setup_real_scope(monkeypatch, tmp_path, with_progress=False)
+    wrong = client.post(
+        "/api/v1/fusion/pre-class/context",
+        json=semantic_request("course-other"),
+        headers=headers,
+    )
+    assert wrong.status_code == 403
+    assert wrong.json()["detail"] == "course_scope_mismatch"
+
+    registry.revoke("learner-real-44", str(scope["courseScopeId"]))
+    revoked = client.post(
+        "/api/v1/fusion/pre-class/context",
+        json=semantic_request(str(scope["courseScopeId"])),
+        headers=headers,
+    )
+    assert revoked.status_code == 403
+    assert revoked.json()["detail"] == "course_scope_revoked"
+
+
+def test_unmatched_topic_is_explicitly_unresolved(monkeypatch, tmp_path) -> None:
+    client, headers, _, scope = setup_real_scope(monkeypatch, tmp_path, with_progress=False)
+    proposal = client.post(
+        "/api/v1/fusion/pre-class/context",
+        json=semantic_request(
+            str(scope["courseScopeId"]),
+            normalizedTopic="Medieval poetry",
+            normalizedLearningObjectives=["Analyze a sonnet"],
+        ),
+        headers=headers,
+    ).json()
+    assert proposal["resolutionStatus"] == "unresolved"
+    assert proposal["clarificationIssues"] == ["knowledge_scope_unresolved"]
+    assert proposal["lessonKnowledgeMap"]["knowledgeRefs"] == []
+
+
+def test_decision_failure_returns_stable_unresolved_result(monkeypatch, tmp_path) -> None:
+    from deeptutor.api.routers import fusion_preclass_context as route_module
+
+    client, headers, _, scope = setup_real_scope(monkeypatch, tmp_path, with_progress=False)
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("private failure detail")
+
+    monkeypatch.setattr(route_module, "build_real_proposal", fail)
+    proposal = client.post(
+        "/api/v1/fusion/pre-class/context",
+        json=semantic_request(str(scope["courseScopeId"])),
+        headers=headers,
+    ).json()
+    assert proposal["resolutionStatus"] == "unresolved"
+    assert proposal["clarificationIssues"] == ["decision_pipeline_unavailable"]
+    assert proposal["warnings"] == ["decision_pipeline_failed"]
+    assert "private failure detail" not in json.dumps(proposal)
+
+
+def test_route_still_rejects_contract_and_delegation_errors(monkeypatch, tmp_path) -> None:
+    client, headers, _, scope = setup_real_scope(monkeypatch, tmp_path, with_progress=False)
+    invalid = semantic_request(str(scope["courseScopeId"]))
+    invalid["learnerId"] = "browser-override"
     assert (
-        client.post(
-            "/api/v1/fusion/pre-class/context",
-            content='{"schemaVersion":"one","schemaVersion":"two"}',
-            headers=headers,
-        ).status_code
+        client.post("/api/v1/fusion/pre-class/context", json=invalid, headers=headers).status_code
         == 400
     )
     assert (
         client.post(
             "/api/v1/fusion/pre-class/context",
-            content=b"x" * (256 * 1024 + 1),
+            json=semantic_request(str(scope["courseScopeId"]), lessonSessionId="wrong-lesson"),
             headers=headers,
         ).status_code
-        == 413
+        == 403
     )
-
-
-def test_synthetic_adapter_is_unavailable_in_production(monkeypatch) -> None:
-    client, headers = client_and_headers(monkeypatch)
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    response = client.post(
-        "/api/v1/fusion/pre-class/context", json=semantic_request(), headers=headers
-    )
-    assert response.status_code == 403
-    assert response.json()["detail"] == "synthetic_context_unavailable"

@@ -12,14 +12,27 @@ SCOPES = (
     "preclass-context:read",
 )
 F24_SYNTHETIC_LEARNERS = ("f24-synthetic-a", "f24-synthetic-b")
-_codes: dict[str, tuple[str, float]] = {}
+_codes: dict[str, dict[str, object]] = {}
 _revoked: set[str] = set()
 _delegations: dict[str, dict[str, object]] = {}
 
 
-def issue_launch_code(learner_id: str) -> str:
+def issue_launch_code(
+    learner_id: str, course_scope: dict[str, object] | None = None
+) -> str:
     code = secrets.token_urlsafe(32)
-    _codes[code] = (learner_id, time.time() + 300)
+    _codes[code] = {
+        "learnerId": learner_id,
+        "expiresAt": time.time() + 300,
+        **(
+            {
+                "courseScopeId": course_scope["courseScopeId"],
+                "courseScopeRevision": course_scope["revision"],
+            }
+            if course_scope
+            else {}
+        ),
+    }
     return code
 
 
@@ -34,19 +47,42 @@ def exchange_launch_code(
     if (
         code in _revoked
         or not record
-        or record[1] < time.time()
+        or float(record["expiresAt"]) < time.time()
         or audience != "openmaic"
         or not lesson_session_id
     ):
         return None
+    if record.get("courseScopeId"):
+        from deeptutor.api.services.fusion_course_scope import (
+            CourseScopeError,
+            get_course_scope_registry,
+        )
+
+        try:
+            get_course_scope_registry().bind_lesson(
+                str(record["learnerId"]),
+                lesson_session_id,
+                str(record["courseScopeId"]),
+                str(record["courseScopeRevision"]),
+            )
+        except CourseScopeError:
+            return None
     result = {
         "token": secrets.token_urlsafe(32),
         "tokenId": secrets.token_hex(12),
-        "learnerId": record[0],
+        "learnerId": record["learnerId"],
         "audience": audience,
         "scope": list(SCOPES),
         "expiresAt": int(time.time() + 900),
         "lessonSessionId": lesson_session_id,
+        **(
+            {
+                "courseScopeId": record["courseScopeId"],
+                "courseScopeRevision": record["courseScopeRevision"],
+            }
+            if record.get("courseScopeId")
+            else {}
+        ),
     }
     _delegations[str(result["token"])] = result
     return result

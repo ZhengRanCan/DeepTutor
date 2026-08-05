@@ -313,6 +313,12 @@ from deeptutor.api.routers import (
     chat,
     co_writer,
     dashboard,
+    fusion_course_scopes,
+    fusion_diagnosis,
+    fusion_launch,
+    fusion_preclass_context,
+    fusion_profile,
+    fusion_profile_updates,
     imports,
     knowledge,
     mastery_path,
@@ -332,11 +338,6 @@ from deeptutor.api.routers import (
     system,
     unified_ws,
     voice,
-    fusion_diagnosis,
-    fusion_profile_updates,
-    fusion_launch,
-    fusion_profile,
-    fusion_preclass_context,
 )
 from deeptutor.api.routers import (
     tools as tools_router,
@@ -425,6 +426,7 @@ app.include_router(voice.router, prefix="/api/v1/voice", tags=["voice"], depende
 app.include_router(fusion_diagnosis.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(fusion_profile_updates.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(fusion_launch.router, prefix="/api/v1/fusion", tags=["fusion"])
+app.include_router(fusion_course_scopes.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(fusion_profile.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(fusion_preclass_context.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(
