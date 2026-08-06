@@ -16,7 +16,7 @@ from deeptutor.services.auth import TokenPayload
 def test_launch_code_is_one_time_and_audience_bound():
     code = issue_launch_code("learner-1")
     first = exchange_launch_code(code, "openmaic", "lesson-1")
-    assert first and first["learnerId"] == "learner-1" and "profile:read" in first["scope"]
+    assert first and first["learnerId"] == "learner-1" and "preclass-context:read" in first["scope"]
     assert exchange_launch_code(code, "openmaic", "lesson-1") is None
 
 

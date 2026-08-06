@@ -5,7 +5,6 @@ import secrets
 import time
 
 SCOPES = (
-    "profile:read",
     "diagnosis:request",
     "classroom-event:write",
     "profile-update:submit",

@@ -317,7 +317,6 @@ from deeptutor.api.routers import (
     fusion_diagnosis,
     fusion_launch,
     fusion_preclass_context,
-    fusion_profile,
     fusion_profile_updates,
     imports,
     knowledge,
@@ -427,7 +426,6 @@ app.include_router(fusion_diagnosis.router, prefix="/api/v1/fusion", tags=["fusi
 app.include_router(fusion_profile_updates.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(fusion_launch.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(fusion_course_scopes.router, prefix="/api/v1/fusion", tags=["fusion"])
-app.include_router(fusion_profile.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(fusion_preclass_context.router, prefix="/api/v1/fusion", tags=["fusion"])
 app.include_router(
     plugins_api.router, prefix="/api/v1/plugins", tags=["plugins"], dependencies=_auth
