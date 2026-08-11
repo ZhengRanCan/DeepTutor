@@ -227,3 +227,36 @@ def test_route_still_rejects_contract_and_delegation_errors(monkeypatch, tmp_pat
         ).status_code
         == 403
     )
+
+
+def test_ambiguous_topic_requests_explicit_clarification(monkeypatch, tmp_path) -> None:
+    client, headers, _, scope = setup_real_scope(monkeypatch, tmp_path, with_progress=False)
+    proposal = client.post(
+        "/api/v1/fusion/pre-class/context",
+        json=semantic_request(
+            str(scope["courseScopeId"]),
+            normalizedTopic="Introduction",
+            normalizedLearningObjectives=["Overview"],
+        ),
+        headers=headers,
+    ).json()
+    assert proposal["resolutionStatus"] == "needs_clarification"
+    assert proposal["clarificationIssues"] == ["requirement_ambiguous"]
+    assert proposal["lessonKnowledgeMap"]["knowledgeRefs"] == []
+    assert proposal["basedOnSemanticRequestRevision"] == "1"
+
+
+def test_clarified_revision_resolves_to_a_new_ready_proposal(monkeypatch, tmp_path) -> None:
+    client, headers, _, scope = setup_real_scope(monkeypatch, tmp_path, with_progress=False)
+    revised = semantic_request(
+        str(scope["courseScopeId"]),
+        semanticRequestRevision="2",
+        normalizedTopic="Explain slope in linear functions",
+        normalizedLearningObjectives=["Interpret slope in linear functions"],
+    )
+    response = client.post("/api/v1/fusion/pre-class/context", json=revised, headers=headers)
+    assert response.status_code == 200
+    proposal = response.json()
+    assert proposal["resolutionStatus"] == "ready"
+    assert proposal["basedOnSemanticRequestRevision"] == "2"
+    assert proposal["semanticRequestDigest"] == revised["semanticRequestDigest"]

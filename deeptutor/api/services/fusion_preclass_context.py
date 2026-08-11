@@ -80,6 +80,11 @@ def _projection(progress_items: list[Progress]) -> tuple[list[str], list[str], l
     return sorted(set(signals)), list(dict.fromkeys(guidance)), []
 
 
+def _semantic_signal_too_vague(request: dict[str, Any]) -> bool:
+    query = " ".join([request["normalizedTopic"], *request["normalizedLearningObjectives"]])
+    return len(_tokens(query)) < 2
+
+
 def _base_proposal(
     request: dict[str, Any], binding: dict[str, Any], *, status: str
 ) -> dict[str, Any]:
@@ -132,6 +137,11 @@ def build_real_proposal(
     query = " ".join([request["normalizedTopic"], *request["normalizedLearningObjectives"]])
     scope_id = str(binding["courseScopeId"])
     proposal = _base_proposal(request, binding, status="ready")
+    if _semantic_signal_too_vague(request):
+        proposal["resolutionStatus"] = "needs_clarification"
+        proposal["clarificationIssues"] = ["requirement_ambiguous"]
+        proposal["warnings"] = ["request_too_vague"]
+        return parse_preclass_teaching_context_proposal(proposal, request)
     refs: list[dict[str, str]] = []
     progress_items: list[Progress] = []
     source_revisions = list(proposal["sourceRevisions"])
