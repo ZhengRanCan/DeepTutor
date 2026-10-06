@@ -53,6 +53,12 @@ async def pre_class_context(
         raise HTTPException(400, error.code) from None
     credential = _credential(authorization, parsed["lessonSessionId"])
     learner_id = str(credential["learnerId"])
+    logger.info(
+        "Fusion pre-class context request received: lessonSessionId=%s semanticRequestId=%s revision=%s",
+        parsed["lessonSessionId"],
+        parsed["semanticRequestId"],
+        parsed["semanticRequestRevision"],
+    )
     try:
         binding = get_course_scope_registry().resolve_binding(
             learner_id, parsed["lessonSessionId"], require_active=True
@@ -70,7 +76,22 @@ async def pre_class_context(
     )
     with user_context(learner):
         try:
-            return build_real_proposal(parsed, binding)
+            proposal = build_real_proposal(parsed, binding)
+            logger.info(
+                "Fusion pre-class context response: lessonSessionId=%s semanticRequestId=%s status=%s knowledgeRefs=%d",
+                parsed["lessonSessionId"],
+                parsed["semanticRequestId"],
+                proposal["resolutionStatus"],
+                len(proposal["lessonKnowledgeMap"]["knowledgeRefs"]),
+            )
+            return proposal
         except Exception as error:
             logger.warning("Fusion pre-class decision pipeline failed: %s", type(error).__name__)
-            return build_failed_proposal(parsed, binding, "decision_pipeline_unavailable")
+            proposal = build_failed_proposal(parsed, binding, "decision_pipeline_unavailable")
+            logger.info(
+                "Fusion pre-class context response: lessonSessionId=%s semanticRequestId=%s status=%s knowledgeRefs=0",
+                parsed["lessonSessionId"],
+                parsed["semanticRequestId"],
+                proposal["resolutionStatus"],
+            )
+            return proposal
